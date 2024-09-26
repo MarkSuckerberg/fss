@@ -1,0 +1,8 @@
+*.db
+*.sqlite
+*.atom
+*.rss
+*.xml
+
+.env
+__pycache__
