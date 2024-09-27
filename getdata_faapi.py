@@ -1,13 +1,14 @@
 from feedgen.feed import FeedGenerator
-from feedgen.ext.dc import DcExtension
-from faapi import FAAPI, Submission
+from feedgen.ext.dc import DcEntryExtension
+from faapi import FAAPI, Submission as FAAPISubmission
+from faapi.exceptions import NotFound, DisabledAccount
 from requests.cookies import RequestsCookieJar
-from requests.exceptions import HTTPError
 from dotenv import dotenv_values
-from datetime import timezone, timedelta
-from flask import Flask
+from datetime import timezone, timedelta, datetime
+from flask import Flask, redirect
 from pickle import dump, load
 from threading import Lock
+import lzma
 
 app = Flask(__name__)
 
@@ -26,24 +27,56 @@ submission_cache = {}
 submission_cache_lock = Lock()
 
 
+class SubmissionData:
+    id: str
+    title: str
+    description: str
+    url: str
+    file_url: str
+    thumbnail_url: str
+    date: datetime
+
+    def __init__(self, fa_submission: FAAPISubmission):
+        self.id = fa_submission.id
+        self.title = fa_submission.title
+        self.description = fa_submission.description
+        self.url = fa_submission.url
+        self.file_url = fa_submission.file_url
+        self.thumbnail_url = fa_submission.thumbnail_url
+        self.date = fa_submission.date
+
+
 class FAFeed(FeedGenerator):
     def __init__(self):
         super().__init__()
         self.load_extension("dc")
         self.generator("FA RSS Proxy")
+        self.link(href="https://www.furaffinity.net/favicon.ico", rel="icon")
+        self.language("en")
 
 
 try:
-    submission_cache = load(open("submission_cache.pkl", "rb"))
+    with lzma.open("submission_cache.pkl.xz", "rb") as f:
+        submission_cache = load(f)
 except FileNotFoundError:
     pass
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return redirect("https://www.furaffinity.net/favicon.ico")
 
 
 @app.route("/gallery/<username>")
 @app.route("/gallery/<username>/<int:page>")
 def gallery_atom(username, page=1):
+    try:
+        feed = gallery_feed(username, page)
+    except NotFound as e:
+        return str(e), 404
+
     return (
-        gallery_feed(username, page).atom_str(pretty=True),
+        feed.atom_str(pretty=True),
         200,
         {"Content-Type": "application/atom+xml"},
     )
@@ -52,22 +85,32 @@ def gallery_atom(username, page=1):
 @app.route("/gallery/<username>/rss")
 @app.route("/gallery/<username>/rss/<int:page>")
 def gallery_rss(username, page=1):
+    try:
+        feed = gallery_feed(username, page)
+    except NotFound as e:
+        return str(e), 404
+
     return (
-        gallery_feed(username, page).rss_str(pretty=True),
+        feed.rss_str(pretty=True),
         200,
         {"Content-Type": "application/rss+xml"},
     )
 
 
 def gallery_feed(username, page=1) -> FeedGenerator:
-    feed = FeedGenerator()
-    feed.load_extension("dc")
-    feed.generator("FA RSS Proxy")
+    feed = FAFeed()
+
+    feed.id(f"https://furaffinity.net/gallery/{username}")
+    feed.link(href=f"https://furaffinity.net/gallery/{username}", rel="alternate")
 
     try:
         gallery, nextPage = faapi.gallery(username, page)
-    except HTTPError as e:
-        return str(e), 404
+    except DisabledAccount as e:
+        feed.title(f"FA Gallery feed of {username}")
+        feed.description(str(e))
+        return feed
+    except NotFound as e:
+        raise e
 
     if page > 1:
         feed.link(href=f"/{username}/gallery", rel="first")
@@ -76,14 +119,15 @@ def gallery_feed(username, page=1) -> FeedGenerator:
     if nextPage:
         feed.link(href=f"/{username}/gallery/{page+1}", rel="next")
 
+    if len(gallery) == 0:
+        feed.title(f"FA Gallery feed of {username}")
+        feed.description("No submissions found, but the user exists.")
+        return feed
+
     user = gallery[0].author
 
     feed.title(f"FA Gallery feed of {user.name}")
     feed.description(user.title)
-
-    feed.id(f"https://furaffinity.net/gallery/{username}")
-    feed.link(href=f"https://furaffinity.net/gallery/{username}", rel="alternate")
-    feed.language("en")
 
     # Check if anything fetched is new
     save = False
@@ -91,25 +135,25 @@ def gallery_feed(username, page=1) -> FeedGenerator:
     for submission in gallery[:10]:
         submission, cached = get_submission(submission.id)
 
-        save = save or cached
+        save = save or not cached
 
         entry = feed.add_entry()
 
-        dc: DcExtension = entry.dc
+        dc: DcEntryExtension = entry.dc
         dc.dc_creator(username)
 
         entry.title(submission.title)
         entry.link(href=submission.url, rel="alternate")
         entry.id(submission.url)
 
-        entry.enclosure(submission.thumbnail_url, 0, "image/jpeg")
-        entry.enclosure(submission.file_url, 0, "image/jpeg")
+        entry.enclosure(url=submission.thumbnail_url, type="image/jpeg")
+        entry.enclosure(url=submission.file_url, type="image/jpeg")
 
         entry.description(
             f"""
             <a href="{submission.url}">
                 <picture>
-                    <source srcset="{submission.file_url}" media="(min-width: 800px, min-height: 800px)">
+                    <source srcset="{submission.file_url}" media="(min-width: 10000px, min-height: 800px)">
                     <img src="{submission.thumbnail_url}" alt="{submission.title}">
                 </picture>      
             </a>
@@ -128,17 +172,18 @@ def gallery_feed(username, page=1) -> FeedGenerator:
     # Save the cache if we have new submissions
     if save:
         with submission_cache_lock:
-            dump(submission_cache, open("submission_cache.pkl", "wb"))
+            with lzma.open("submission_cache.pkl.xz", "wb") as f:
+                dump(submission_cache, f)
 
     return feed
 
 
-def get_submission(submission_id) -> tuple[Submission, bool]:
+def get_submission(submission_id) -> tuple[SubmissionData, bool]:
     with submission_cache_lock:
         if submission_id in submission_cache:
             return submission_cache[submission_id], True
 
-        submission = faapi.submission(submission_id)[0]
+        submission = SubmissionData(faapi.submission(submission_id)[0])
 
         submission_cache[submission_id] = submission
 

@@ -4,6 +4,10 @@
 *.rss
 *.xml
 *.pkl
+*.json
+*.jzon
+*.bz2
+*.xz
 
 .env
 __pycache__
