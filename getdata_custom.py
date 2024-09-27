@@ -1,15 +1,13 @@
 from feedgen.feed import FeedGenerator
 from faapi import FAAPI
 from requests.cookies import RequestsCookieJar
-from requests.exceptions import HTTPError
 from dotenv import dotenv_values
 from datetime import timezone, timedelta
-from requests_cache import CachedSession
 import sqlite3
 
 from flask import Flask
 
-from getdata import GetPosts
+from custom_api import get_posts
 
 app = Flask(__name__)
 
@@ -55,13 +53,13 @@ def gallery_feed(username, page=1) -> FeedGenerator:
     feed = FeedGenerator()
     feed.generator("FA RSS Proxy")
 
-    gallery, authorName = GetPosts(cookies, username, page)
+    gallery, author_name = get_posts(cookies, username, page)
 
     if page > 1:
         feed.link(href=f"/{username}/gallery", rel="first")
         feed.link(href=f"/{username}/gallery/{page-1}", rel="prev")
 
-    feed.title(f"FA Gallery feed of {authorName}")
+    feed.title(f"FA Gallery feed of {author_name}")
     # feed.description(user.profile)
     feed.id(f"https://furaffinity.net/gallery/{username}")
     feed.link(href=f"https://furaffinity.net/gallery/{username}", rel="alternate")
