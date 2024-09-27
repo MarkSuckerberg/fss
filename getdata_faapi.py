@@ -52,6 +52,7 @@ class FAFeed(FeedGenerator):
         super().__init__()
         self.load_extension("dc")
         self.generator("FA RSS Proxy")
+        self.webMaster("fss@stellers.gay")
         self.link(href="https://www.furaffinity.net/favicon.ico", rel="icon")
         self.language("en")
 
@@ -61,6 +62,11 @@ try:
         submission_cache = load(f)
 except FileNotFoundError:
     pass
+
+
+@app.route("/")
+def index():
+    return redirect("https://github.com/MarkSuckerberg/fss")
 
 
 @app.route("/favicon.ico")
