@@ -3,6 +3,7 @@
 *.atom
 *.rss
 *.xml
+*.pkl
 
 .env
 __pycache__
