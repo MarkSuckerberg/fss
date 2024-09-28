@@ -1,4 +1,3 @@
-from datetime import timezone, timedelta, datetime
 from dotenv import dotenv_values
 from faapi import FAAPI, Submission as FAAPISubmission
 from faapi.exceptions import NotFound, DisabledAccount
@@ -8,6 +7,10 @@ from flask import Flask, redirect
 from pickle import dump, load
 from requests.cookies import RequestsCookieJar
 from threading import Lock
+
+from submissiondata import SubmissionData
+from fafeed import FAFeed
+from i_love_libraries import ErrorFixEntryExtension
 
 import lzma
 
@@ -21,40 +24,9 @@ cookies.set("b", env["FA_B"])
 
 faapi = FAAPI(cookies)
 
-# FA returns EST for some reason
-FA_TIMEZONE = timezone(-timedelta(hours=5))
 
-submission_cache = {}
+submission_cache: dict[str, SubmissionData] = {}
 submission_cache_lock = Lock()
-
-
-class SubmissionData:
-    id: str
-    title: str
-    description: str
-    url: str
-    file_url: str
-    thumbnail_url: str
-    date: datetime
-
-    def __init__(self, fa_submission: FAAPISubmission):
-        self.id = fa_submission.id
-        self.title = fa_submission.title
-        self.description = fa_submission.description
-        self.url = fa_submission.url
-        self.file_url = fa_submission.file_url
-        self.thumbnail_url = fa_submission.thumbnail_url
-        self.date = fa_submission.date
-
-
-class FAFeed(FeedGenerator):
-    def __init__(self):
-        super().__init__()
-        self.load_extension("dc")
-        self.generator("FA RSS Proxy")
-        self.webMaster("fss@stellers.gay")
-        self.link(href="https://www.furaffinity.net/favicon.ico", rel="icon")
-        self.language("en")
 
 
 try:
@@ -134,7 +106,7 @@ def gallery_feed(username, page=1) -> FeedGenerator:
     user = gallery[0].author
 
     feed.title(f"FA Gallery feed of {user.name}")
-    feed.description(user.title)
+    feed.description(user.title or user.name)
 
     # Check if anything fetched is new
     save = False
@@ -153,16 +125,33 @@ def gallery_feed(username, page=1) -> FeedGenerator:
         entry.link(href=submission.url, rel="alternate")
         entry.id(submission.url)
 
-        entry.enclosure(url=submission.thumbnail_url, type="image/jpeg")
-        entry.enclosure(url=submission.file_url, type="image/jpeg")
+        file_type = submission.file_url.split(".")[-1]
+        types = {
+            "png": "image/png",
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "gif": "image/gif",
+            "mp4": "video/mp4",
+            "webm": "video/webm",
+            "pdf": "application/pdf",
+        }
+
+        fix: ErrorFixEntryExtension = entry.errorfix
+        fix.add_atom_link(
+            submission.file_url,
+            rel="enclosure",
+            type=types.get(file_type, "application/octet-stream"),
+        )
+
+        entry.enclosure(
+            url=submission.file_url,
+            type=types.get(file_type, "application/octet-stream"),
+        )
 
         entry.description(
             f"""
             <a href="{submission.url}">
-                <picture>
-                    <source srcset="{submission.file_url}" media="(min-width: 10000px, min-height: 800px)">
-                    <img src="{submission.thumbnail_url}" alt="{submission.title}">
-                </picture>      
+                <img src="{submission.thumbnail_url}" alt="{submission.title}">
             </a>
             <hr />
             {submission.description}
@@ -171,7 +160,7 @@ def gallery_feed(username, page=1) -> FeedGenerator:
 
         entry.author(name=username)
 
-        date = submission.date.replace(tzinfo=FA_TIMEZONE)
+        date = submission.date
 
         entry.published(date)
         entry.updated(date)
@@ -185,7 +174,7 @@ def gallery_feed(username, page=1) -> FeedGenerator:
     return feed
 
 
-def get_submission(submission_id) -> tuple[SubmissionData, bool]:
+def get_submission(submission_id: int) -> tuple[SubmissionData, bool]:
     with submission_cache_lock:
         if submission_id in submission_cache:
             return submission_cache[submission_id], True
