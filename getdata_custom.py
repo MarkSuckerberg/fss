@@ -1,9 +1,10 @@
 from feedgen.feed import FeedGenerator
 from faapi import FAAPI
 from requests.cookies import RequestsCookieJar
-from dotenv import dotenv_values
+from dotenv import load_dotenv
 from datetime import timezone, timedelta
 import sqlite3
+from os import getenv
 
 from flask import Flask
 
@@ -11,11 +12,11 @@ from custom_api import get_posts
 
 app = Flask(__name__)
 
-env = dotenv_values(".env")
+load_dotenv(".env")
 
 cookies = RequestsCookieJar()
-cookies.set("a", env["FA_A"])
-cookies.set("b", env["FA_B"])
+cookies.set("a", getenv("FA_A"))
+cookies.set("b", getenv("FA_B"))
 
 faapi = FAAPI(cookies)
 

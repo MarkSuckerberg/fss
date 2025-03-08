@@ -1,4 +1,4 @@
-from dotenv import dotenv_values
+from dotenv import load_dotenv
 from faapi import FAAPI
 from faapi.exceptions import NotFound, DisabledAccount
 from feedgen.feed import FeedGenerator
@@ -10,19 +10,18 @@ from threading import Lock
 from submissiondata import SubmissionData
 from fafeed import FAFeed
 from error_fix_extension import ErrorFixEntryExtension
+from os import getenv
 
 import lzma
 
 app = Flask(__name__)
 
-env = dotenv_values(".env")
+load_dotenv(".env")
 
-if not ("FA_A" in env and "FA_B" in env):
-    raise Exception("a and b cookies from FA are required!")
 
 cookies = RequestsCookieJar()
-cookies.set("a", env["FA_A"])
-cookies.set("b", env["FA_B"])
+cookies.set("a", getenv("FA_A"))
+cookies.set("b", getenv("FA_B"))
 
 faapi = FAAPI(cookies)
 
