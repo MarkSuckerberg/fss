@@ -1,5 +1,5 @@
 from feedgen.feed import FeedGenerator
-from i_love_libraries import ErrorFixExtension, ErrorFixEntryExtension
+from error_fix_extension import ErrorFixExtension, ErrorFixEntryExtension
 
 
 class FAFeed(FeedGenerator):

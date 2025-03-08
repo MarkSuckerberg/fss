@@ -1,5 +1,5 @@
 from dotenv import dotenv_values
-from faapi import FAAPI, Submission as FAAPISubmission
+from faapi import FAAPI
 from faapi.exceptions import NotFound, DisabledAccount
 from feedgen.feed import FeedGenerator
 from feedgen.ext.dc import DcEntryExtension
@@ -7,16 +7,18 @@ from flask import Flask, redirect
 from pickle import dump, load
 from requests.cookies import RequestsCookieJar
 from threading import Lock
-
 from submissiondata import SubmissionData
 from fafeed import FAFeed
-from i_love_libraries import ErrorFixEntryExtension
+from error_fix_extension import ErrorFixEntryExtension
 
 import lzma
 
 app = Flask(__name__)
 
 env = dotenv_values(".env")
+
+if not ("FA_A" in env and "FA_B" in env):
+    raise Exception("a and b cookies from FA are required!")
 
 cookies = RequestsCookieJar()
 cookies.set("a", env["FA_A"])
@@ -25,12 +27,13 @@ cookies.set("b", env["FA_B"])
 faapi = FAAPI(cookies)
 
 
+cache_file = "data/submission_cache.pkl.xz"
 submission_cache: dict[str, SubmissionData] = {}
 submission_cache_lock = Lock()
 
 
 try:
-    with lzma.open("submission_cache.pkl.xz", "rb") as f:
+    with lzma.open(cache_file, "rb") as f:
         submission_cache = load(f)
 except FileNotFoundError:
     pass
@@ -107,6 +110,7 @@ def gallery_feed(username, page=1) -> FeedGenerator:
 
     feed.title(f"FA Gallery feed of {user.name}")
     feed.description(user.title or user.name)
+    feed.icon(user.avatar_url)
 
     # Check if anything fetched is new
     save = False
@@ -168,7 +172,7 @@ def gallery_feed(username, page=1) -> FeedGenerator:
     # Save the cache if we have new submissions
     if save:
         with submission_cache_lock:
-            with lzma.open("submission_cache.pkl.xz", "wb") as f:
+            with lzma.open(cache_file, "wb") as f:
                 dump(submission_cache, f)
 
     return feed

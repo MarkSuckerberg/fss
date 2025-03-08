@@ -2,7 +2,6 @@ from bs4 import BeautifulSoup, Tag, ResultSet
 import requests
 from requests.cookies import RequestsCookieJar
 from datetime import date, timedelta
-import sqlite3
 
 
 class PostInfo:
@@ -75,11 +74,3 @@ def get_posts(
         post_data.append(data)
 
     return (post_data, author_name)
-
-
-def FullSubmissionInfo(cookies: RequestsCookieJar, id: int) -> PostInfo:
-    response = requests.get(
-        f"https://furaffinity.net/view/{id}/",
-        cookies=cookies,
-        headers={"User-Agent": "FA RSS Proxy"},
-    )

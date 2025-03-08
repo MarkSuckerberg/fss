@@ -1,0 +1,6 @@
+faapi
+feedgen
+flask
+gunicorn
+lxml
+python-dotenv
